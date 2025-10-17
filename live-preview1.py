@@ -44,7 +44,7 @@ def main():
 
     picam2.set_controls(controls_dict)
 
-    win = "Preview — q: quit | s: snapshot | [ / ]: EV ±0.5 | i: set infinity | a: AF continuous"
+    win = "Preview — q: quit | s: snapshot | [ / ]: EV ±0.5 | i: infinity | a: AF continuous"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(win, args.width, args.height)
 
@@ -56,10 +56,17 @@ def main():
         while True:
             frame = picam2.capture_array()  # RGB
             md = picam2.capture_metadata() or {}
+
             exp_us = md.get("ExposureTime")
             gain = md.get("AnalogueGain")
             lens = md.get("LensPosition")
             lux = md.get("Lux")
+
+            # Safe string formats (avoid formatting None)
+            exp_str = f"{exp_us}" if exp_us is not None else "—"
+            gain_str = f"{gain:.2f}" if isinstance(gain, (int, float)) else "—"
+            lens_str = f"{lens:.3f}" if isinstance(lens, (int, float)) else "—"
+            lux_str = f"{lux:.1f}" if isinstance(lux, (int, float)) else "—"
 
             # FPS counter
             frames += 1
@@ -71,8 +78,8 @@ def main():
 
             # HUD text
             hud = (
-                f"EV {args.ev:+.1f} | exp {exp_us} µs | gain {gain:.2f} "
-                f"| lens {lens:.3f if lens is not None else '—'} | lux {lux:.1f if lux else '—'} | {fps:.1f} FPS"
+                f"EV {args.ev:+.1f} | exp {exp_str} µs | gain {gain_str} | "
+                f"lens {lens_str} | lux {lux_str} | {fps:.1f} FPS"
             )
             cv2.putText(frame, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
 
