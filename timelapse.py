@@ -18,13 +18,13 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Capture a photo every X seconds with fixed-infinity focus and bright-biased AE."
     )
-    p.add_argument("-i", "--interval", type=float, default=5.0,
+    p.add_argument("-i", "--interval", type=float, default=60,
                    help="Seconds between shots (default: 5.0)")
     p.add_argument("-o", "--output", type=Path, default=Path("./images"),
                    help="Output folder (default: ./images)")
     p.add_argument("--prefix", default="frame_",
                    help="Filename prefix (default: frame_)")
-    p.add_argument("--ev", type=float, default=1.0,
+    p.add_argument("--ev", type=float, default=10.0,
                    help="Exposure compensation in EV (default: +1.0 = brighter)")
     p.add_argument("--quality", type=int, default=93,
                    help="JPEG quality 1–100 (default: 93)")
