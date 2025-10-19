@@ -24,7 +24,7 @@ def parse_args():
                    help="Output folder (default: ./images)")
     p.add_argument("--prefix", default="frame_",
                    help="Filename prefix (default: frame_)")
-    p.add_argument("--ev", type=float, default=10.0,
+    p.add_argument("--ev", type=float, default=3.0,
                    help="EV compensation for AE (typical range ±2..±4; default: +1.0)")
     p.add_argument("--quality", type=int, default=50,
                    help="JPEG quality 1–100 (default: 93)")
@@ -39,7 +39,7 @@ def parse_args():
     p.add_argument("--night-max-shutter", type=float, default=2.0,
                    help="Max shutter (seconds) when dark (default: 1.0s)")
     p.add_argument("--dark-lux", type=float, default=8.0,
-                   help="Switch to 'dark' mode below this Lux (default: 8.0)")
+                   help="Switch to 'dark' mode below this Lux (default: 4.0)")
     p.add_argument("--hysteresis", type=float, default=3.0,
                    help="Lux hysteresis to return to 'bright' mode (default: 3.0)")
     p.add_argument("--gain-dark", type=float, default=4.0,
