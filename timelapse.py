@@ -20,11 +20,11 @@ def parse_args():
     )
     p.add_argument("-i", "--interval", type=float, default=120,
                    help="Seconds between shots (default: 120)")
-    p.add_argument("-o", "--output", type=Path, default=Path("./images"),
+    p.add_argument("-o", "--output", type=Path, default=Path("./images2"),
                    help="Output folder (default: ./images)")
     p.add_argument("--prefix", default="frame_",
                    help="Filename prefix (default: frame_)")
-    p.add_argument("--ev", type=float, default=1.0,
+    p.add_argument("--ev", type=float, default=10.0,
                    help="EV compensation for AE (typical range ±2..±4; default: +1.0)")
     p.add_argument("--quality", type=int, default=50,
                    help="JPEG quality 1–100 (default: 93)")
@@ -36,15 +36,15 @@ def parse_args():
     # NEW: adaptive long-exposure controls
     p.add_argument("--day-max-shutter", type=float, default=(1/15),
                    help="Max shutter (seconds) in bright scenes (default: 1/15 ≈ 0.0667s)")
-    p.add_argument("--night-max-shutter", type=float, default=1.0,
+    p.add_argument("--night-max-shutter", type=float, default=2.0,
                    help="Max shutter (seconds) when dark (default: 1.0s)")
-    p.add_argument("--dark-lux", type=float, default=8.0,
+    p.add_argument("--dark-lux", type=float, default=12.0,
                    help="Switch to 'dark' mode below this Lux (default: 8.0)")
     p.add_argument("--hysteresis", type=float, default=3.0,
                    help="Lux hysteresis to return to 'bright' mode (default: 3.0)")
-    p.add_argument("--gain-dark", type=float, default=4.0,
+    p.add_argument("--gain-dark", type=float, default=6.0,
                    help="Fallback: treat as dark if AnalogueGain exceeds this and Lux is unavailable (default: 4.0)")
-    p.add_argument("--settle", type=float, default=0.2,
+    p.add_argument("--settle", type=float, default=1.0,
                    help="Time (s) to let AE settle after changing limits, before capture (default: 0.2)")
     return p.parse_args()
 
