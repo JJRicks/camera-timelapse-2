@@ -38,11 +38,11 @@ def parse_args():
                    help="Max shutter (seconds) in bright scenes (default: 1/15 ≈ 0.0667s)")
     p.add_argument("--night-max-shutter", type=float, default=2.0,
                    help="Max shutter (seconds) when dark (default: 1.0s)")
-    p.add_argument("--dark-lux", type=float, default=12.0,
+    p.add_argument("--dark-lux", type=float, default=8.0,
                    help="Switch to 'dark' mode below this Lux (default: 8.0)")
     p.add_argument("--hysteresis", type=float, default=3.0,
                    help="Lux hysteresis to return to 'bright' mode (default: 3.0)")
-    p.add_argument("--gain-dark", type=float, default=6.0,
+    p.add_argument("--gain-dark", type=float, default=4.0,
                    help="Fallback: treat as dark if AnalogueGain exceeds this and Lux is unavailable (default: 4.0)")
     p.add_argument("--settle", type=float, default=1.0,
                    help="Time (s) to let AE settle after changing limits, before capture (default: 0.2)")
