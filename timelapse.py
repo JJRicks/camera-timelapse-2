@@ -18,7 +18,7 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Timelapse with infinity focus; AE biased brighter; long shutter only when dark."
     )
-    p.add_argument("-i", "--interval", type=float, default=120,
+    p.add_argument("-i", "--interval", type=float, default=60,
                    help="Seconds between shots (default: 120)")
     p.add_argument("-o", "--output", type=Path, default=Path("./images2"),
                    help="Output folder (default: ./images)")
