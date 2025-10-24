@@ -52,7 +52,12 @@ def parse_args():
 
 
 def get_video_source(args):
-    """Return a frame grabber. Supports USB/V4L and Picamera2."""
+    """Return a frame grabber. Supports:
+       - 'picam' (Picamera2 live frames)
+       - file:/path/to/image.jpg  (poll a still image that keeps being rewritten)
+       - V4L/USB paths or indexes via cv2.VideoCapture
+    """
+    # 1) Picamera2 live feed
     if args.device == "picam":
         try:
             from picamera2 import Picamera2
@@ -63,27 +68,71 @@ def get_video_source(args):
         cfg = picam2.create_video_configuration(main={"size": (args.width, args.height)}, buffer_count=4)
         picam2.configure(cfg)
         picam2.start()
+
         def grab():
             arr = picam2.capture_array()  # RGB
             return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+
         return grab, lambda: picam2.stop()
-    else:
-        src = 0 if args.device in ("auto", "0", 0) else args.device
-        if isinstance(src, str) and src.isdigit():
-            src = int(src)
-        cap = cv2.VideoCapture(src)
-        if args.device != "picam":
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-        if not cap.isOpened():
-            print(f"Failed to open video source: {args.device}", file=sys.stderr)
-            sys.exit(1)
+
+    # 2) File source: "file:/dev/shm/picam.jpg"  OR a plain existing path "/dev/shm/picam.jpg"
+    from pathlib import Path as _Path
+    import os as _os, time as _time
+    if isinstance(args.device, str) and (args.device.startswith("file:") or _Path(args.device).exists()):
+        p = args.device.removeprefix("file:")
+        p = str(_Path(p).expanduser().resolve())
+        print(f"[file source] Watching {p} for updates…")
+
         def grab():
-            ok, f = cap.read()
-            if not ok:
-                raise RuntimeError("Camera read failed")
-            return f
-        return grab, lambda: cap.release()
+            # Wait until the file exists
+            while not _os.path.exists(p):
+                _time.sleep(0.05)
+
+            # Wait for modification time to change (avoid reading mid-write)
+            last = getattr(grab, "_last_mtime_ns", 0)
+            try:
+                mtime = _os.stat(p).st_mtime_ns
+            except AttributeError:
+                # py<3.8 fallback (not needed here, but harmless)
+                mtime = int(_os.stat(p).st_mtime * 1e9)
+
+            while mtime == last:
+                _time.sleep(0.01)
+                try:
+                    mtime = _os.stat(p).st_mtime_ns
+                except AttributeError:
+                    mtime = int(_os.stat(p).st_mtime * 1e9)
+
+            grab._last_mtime_ns = mtime
+
+            img = cv2.imread(p, cv2.IMREAD_COLOR)
+            if img is None:
+                raise RuntimeError(f"Failed to read image file: {p}")
+            return img
+
+        return grab, (lambda: None)
+
+    # 3) Generic: V4L/USB or stream URL via OpenCV
+    src = 0 if args.device in ("auto", "0", 0) else args.device
+    if isinstance(src, str) and src.isdigit():
+        src = int(src)
+
+    cap = cv2.VideoCapture(src)
+    if args.device != "picam":
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+
+    if not cap.isOpened():
+        print(f"Failed to open video source: {args.device}", file=sys.stderr)
+        sys.exit(1)
+
+    def grab():
+        ok, f = cap.read()
+        if not ok:
+            raise RuntimeError("Camera read failed")
+        return f
+
+    return grab, lambda: cap.release()
 
 
 def main():
