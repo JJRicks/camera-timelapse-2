@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, sys, time, json
+import argparse, sys, time, json, os
 from pathlib import Path
 from typing import List, Tuple
 import numpy as np
@@ -85,15 +85,25 @@ def draw_poly(img, poly: Quad, color, thickness=2, fill_alpha: float=None):
 # ------------------------------------------
 # Sources: picam / V4L / file tailer
 # ------------------------------------------
-def get_video_source(device, width, height):
+def get_video_source(device, width, height, lens_position=None):
     if device == "picam":
         try:
             from picamera2 import Picamera2
+            from libcamera import controls  # optional use for manual focus
         except Exception as e:
             print("Picamera2 not available:", e, file=sys.stderr); sys.exit(1)
         p = Picamera2()
         cfg = p.create_video_configuration(main={"size": (width, height)}, buffer_count=4)
         p.configure(cfg); p.start()
+        # optional: set manual "infinity" focus if requested
+        if lens_position is not None:
+            try:
+                p.set_controls({
+                    "AfMode": controls.AfModeEnum.Manual,
+                    "LensPosition": float(lens_position),
+                })
+            except Exception:
+                pass
         def grab():
             arr = p.capture_array()  # RGB
             return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
@@ -164,11 +174,25 @@ def parse_args():
     ap.add_argument("--conf", type=float, default=0.35)
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--labels", default=None)
-    ap.add_argument("--spaces", default=None, help="JSON with 7 spaces (each 4 points [x,y])")
+    ap.add_argument("--spaces", default=None, help="JSON with spaces (each 4 points [x,y])")
     ap.add_argument("--overlap", type=float, default=0.5,
-                    help="Min fraction of a **car box** area inside a space to assign that space (default 0.5)")
+                    help="Min fraction of a **car box** inside a space to assign that space (default 0.5)")
     ap.add_argument("--alpha", type=float, default=0.25)
     ap.add_argument("--rotate", type=int, choices=[0,90,180,270], default=0)
+    ap.add_argument("--lens-position", type=float, default=None,
+                    help="For Picamera2 only: set manual focus. 0.0≈infinity.")
+    # NEW: show assignment overlays
+    ap.add_argument("--show-assignment", action="store_true", default=False,
+                    help="Draw line from each car to its chosen space and label overlap.")
+    # NEW: saving overlays
+    ap.add_argument("--save-dir", default="~/camera-timelapse-2/images2",
+                    help="Directory to save inference frames with overlays (default: ~/camera-timelapse-2/images2)")
+    ap.add_argument("--save-quality", type=int, default=60,
+                    help="JPEG quality 1–100 for saved frames (default: 60).")
+    ap.add_argument("--save-interval", type=int, default=1,
+                    help="Save every Nth frame; 0 disables saving (default: 1).")
+    ap.add_argument("--save-prefix", default="infer_",
+                    help="Filename prefix for saved frames (default: infer_).")
     return ap.parse_args()
 
 def load_spaces(args, frame_size) -> List[Quad]:
@@ -226,8 +250,14 @@ def main():
     print(f"[model] input {(in_h,in_w)} dtype={in_dtype} head={head_mode}")
 
     # Source and spaces
-    grab, cleanup = get_video_source(args.device, args.width, args.height)
+    grab, cleanup = get_video_source(args.device, args.width, args.height, lens_position=args.lens_position)
     spaces = load_spaces(args, (args.width, args.height))
+
+    # Saving setup
+    save_dir = Path(args.save_dir).expanduser()
+    if args.save_interval and not save_dir.exists():
+        save_dir.mkdir(parents=True, exist_ok=True)
+    frame_idx = 0  # for filenames
 
     t0 = time.time(); frames=0; fps=0.0
     try:
@@ -301,31 +331,26 @@ def main():
                 if x2>x1 and y2>y1:
                     dets.append((x1,y1,x2,y2,c,s))
 
-            # --------------- NEW: car → best-space assignment ---------------
+            # --------------- car → best-space assignment ---------------
             occupied_set = set()
-            # (optional) keep per-car best for debugging/overlay
-            car_assignments = []  # list of (box, best_space_idx, best_frac)
+            assignments = []  # list of (box_xyxy, best_space_idx, best_frac)
 
             for (x1,y1,x2,y2,c,s) in dets:
+                # only "car" class ids are considered
                 if c not in car_class_ids:
                     continue
                 rect_area = float((x2-x1)*(y2-y1))
-                if rect_area <= 0:
-                    continue
-
-                best_idx = None
-                best_frac = 0.0
+                if rect_area <= 0: continue
+                best_idx = None; best_frac = 0.0
                 for idx, quad in enumerate(spaces, start=1):
                     inter = rect_poly_intersection_area((x1,y1,x2,y2), quad)
                     frac = inter / rect_area
                     if frac > best_frac:
                         best_frac = frac
                         best_idx = idx
-
-                # Assign this car to the single best space (if above threshold)
                 if best_idx is not None and best_frac >= args.overlap:
                     occupied_set.add(best_idx)
-                    car_assignments.append(((x1,y1,x2,y2), best_idx, best_frac))
+                    assignments.append(((x1,y1,x2,y2), best_idx, best_frac))
 
             # --------------- draw overlays ---------------
             # draw car boxes
@@ -337,12 +362,24 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,255,255), 1, cv2.LINE_AA)
 
             # draw spaces (red if occupied, green if empty)
+            centroids = []
             for i, quad in enumerate(spaces, start=1):
                 color = (0,0,255) if i in occupied_set else (0,200,0)
                 draw_poly(frame, quad, color, thickness=2, fill_alpha=args.alpha)
                 cx = int(sum(p[0] for p in quad)/4); cy = int(sum(p[1] for p in quad)/4)
+                centroids.append((cx,cy))
                 cv2.putText(frame, f"{i}", (cx-6, cy+6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2, cv2.LINE_AA)
                 cv2.putText(frame, f"{i}", (cx-6, cy+6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 1, cv2.LINE_AA)
+
+            # NEW: show assignment lines/labels if requested
+            if args.show_assignment:
+                for (x1,y1,x2,y2), idx, frac in assignments:
+                    cx_b = (x1 + x2) // 2
+                    cy_b = (y1 + y2) // 2
+                    cx_s, cy_s = centroids[idx-1]
+                    cv2.arrowedLine(frame, (cx_b,cy_b), (cx_s,cy_s), (255,255,0), 1, tipLength=0.12)
+                    lbl = f"→ {idx} ({frac:.2f})"
+                    cv2.putText(frame, lbl, (cx_b+6, cy_b-6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,0), 1, cv2.LINE_AA)
 
             # status banner
             occupied = sorted(list(occupied_set))
@@ -361,6 +398,23 @@ def main():
             cv2.putText(frame, f"inf:{ms:.0f}ms  FPS:{fps:.2f}", (10, frame.shape[0]-10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240,240,240), 1, cv2.LINE_AA)
 
+            # NEW: save overlaid frame
+            if args.save_interval and (frames % args.save_interval == 0):
+                ts = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+                # add a few extra digits to avoid collisions within the same second
+                ns_tail = int(time.time_ns() % 1_000_000_000)
+                fname = f"{args.save_prefix}{ts}_{ns_tail:09d}.jpg"
+                out_path = save_dir / fname
+                try:
+                    ok = cv2.imwrite(str(out_path), frame, [int(cv2.IMWRITE_JPEG_QUALITY), int(args.save_quality)])
+                    if not ok:
+                        # best-effort: ensure dir exists then retry once
+                        save_dir.mkdir(parents=True, exist_ok=True)
+                        cv2.imwrite(str(out_path), frame, [int(cv2.IMWRITE_JPEG_QUALITY), int(args.save_quality)])
+                except Exception:
+                    pass
+
+            # show
             cv2.imshow("Parking occupancy (q to quit)", frame)
             if cv2.waitKey(1) & 0xFF in (ord('q'), 27):
                 break
